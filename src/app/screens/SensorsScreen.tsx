@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, Text, ScrollView, Animated } from 'react-native';
+import { View, StyleSheet, Text, Animated } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAppSelector } from '../../store/hooks';
@@ -60,7 +61,11 @@ export function SensorsScreen() {
         <Text style={styles.headerSubtitle}>Monitor real-time health and calibration status of flight controller sensors.</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        nestedScrollEnabled={true}
+        showsVerticalScrollIndicator={true}
+      >
         {sensors.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>Waiting for sensor data...</Text>
@@ -100,6 +105,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   scrollContent: {
+    flexGrow: 1,
     padding: 20,
   },
   grid: {

@@ -3,9 +3,13 @@ import type { RootState } from '../index';
 import { ConnectionType, VehicleType, AutopilotType } from '../../settings/types/connection';
 
 export type ConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'ERROR';
+export type ControlConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'DEGRADED' | 'RECONNECTING' | 'ERROR';
+export type VideoConnectionStatus = 'OFFLINE' | 'CONNECTING' | 'STREAMING' | 'ERROR' | 'RECONNECTING';
 
 export interface ConnectionState {
-  status: ConnectionStatus;
+  status: ConnectionStatus; // Overall drone control status for backwards compatibility
+  controlStatus: ControlConnectionStatus; // Dedicated Control / Telemetry stream status
+  videoStatus: VideoConnectionStatus; // Dedicated Video Media stream status
   activeType: ConnectionType;
   activePortInfo: string;
   vehicleName: string;
@@ -18,10 +22,13 @@ export interface ConnectionState {
   bytesSent: number;
   packetsPerSec: number;
   error: string | null;
+  videoError: string | null;
 }
 
 const initialState: ConnectionState = {
   status: 'DISCONNECTED',
+  controlStatus: 'DISCONNECTED',
+  videoStatus: 'OFFLINE',
   activeType: 'UDP',
   activePortInfo: 'UDP: 14550',
   vehicleName: 'ArduCopter V4.5.1',
@@ -34,6 +41,7 @@ const initialState: ConnectionState = {
   bytesSent: 0,
   packetsPerSec: 0,
   error: null,
+  videoError: null,
 };
 
 export const connectionSlice = createSlice({
@@ -42,6 +50,23 @@ export const connectionSlice = createSlice({
   reducers: {
     setStatus: (state, action: PayloadAction<ConnectionStatus>) => {
       state.status = action.payload;
+      if (action.payload === 'CONNECTED') state.controlStatus = 'CONNECTED';
+      else if (action.payload === 'CONNECTING') state.controlStatus = 'CONNECTING';
+      else if (action.payload === 'DISCONNECTED') state.controlStatus = 'DISCONNECTED';
+      else if (action.payload === 'ERROR') state.controlStatus = 'ERROR';
+    },
+    setControlStatus: (state, action: PayloadAction<ControlConnectionStatus>) => {
+      state.controlStatus = action.payload;
+      if (action.payload === 'CONNECTED') state.status = 'CONNECTED';
+      else if (action.payload === 'CONNECTING' || action.payload === 'RECONNECTING') state.status = 'CONNECTING';
+      else if (action.payload === 'DISCONNECTED') state.status = 'DISCONNECTED';
+      else if (action.payload === 'ERROR' || action.payload === 'DEGRADED') state.status = 'ERROR';
+    },
+    setVideoStatus: (state, action: PayloadAction<VideoConnectionStatus>) => {
+      state.videoStatus = action.payload;
+    },
+    setVideoError: (state, action: PayloadAction<string | null>) => {
+      state.videoError = action.payload;
     },
     setActiveConnectionInfo: (state, action: PayloadAction<{ type: ConnectionType; portInfo: string }>) => {
       state.activeType = action.payload.type;
@@ -74,6 +99,9 @@ export const connectionSlice = createSlice({
 
 export const { 
   setStatus, 
+  setControlStatus,
+  setVideoStatus,
+  setVideoError,
   setActiveConnectionInfo,
   setDetectedVehicle,
   setHeartbeat, 
@@ -84,7 +112,11 @@ export const {
 } = connectionSlice.actions;
 
 export const selectConnectionStatus = (state: RootState) => state.connection.status;
-export const selectIsConnected = (state: RootState) => state.connection.status === 'CONNECTED';
+export const selectControlStatus = (state: RootState) => state.connection.controlStatus;
+export const selectVideoStatus = (state: RootState) => state.connection.videoStatus;
+export const selectIsConnected = (state: RootState) => state.connection.status === 'CONNECTED' || state.connection.controlStatus === 'CONNECTED';
+export const selectIsControlConnected = (state: RootState) => state.connection.controlStatus === 'CONNECTED';
+export const selectIsVideoStreaming = (state: RootState) => state.connection.videoStatus === 'STREAMING';
 export const selectActiveType = (state: RootState) => state.connection.activeType;
 export const selectActivePortInfo = (state: RootState) => state.connection.activePortInfo;
 export const selectVehicleName = (state: RootState) => state.connection.vehicleName;

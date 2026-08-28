@@ -1,0 +1,53 @@
+name: Publish Production OTA Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Release Message / Changelog summary for this OTA update'
+        required: true
+        default: 'Production OTA Bug fixes & UI improvements'
+      channel:
+        description: 'Target EAS Channel'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+
+jobs:
+  publish-production:
+    name: Validate & Publish Production OTA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🔍 TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: 🧪 Run Unit Tests & Safety Matrix
+        run: npm test
+
+      - name: 🚀 Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 📡 Publish Explicit OTA Update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli update --channel ${{ github.event.inputs.channel }} --message "${{ github.event.inputs.message }}" --non-interactive

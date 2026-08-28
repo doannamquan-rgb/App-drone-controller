@@ -92,6 +92,8 @@ export const selectSelectedWaypoint = (state: RootState) =>
 export const selectSyncStatus = (state: RootState) => state.mission.syncStatus;
 export const selectSyncProgress = (state: RootState) => state.mission.syncProgress;
 
+import { missionService } from '../../services/mission/MissionService';
+
 export const uploadMission = (): any => {
   return async (dispatch: any, getState: any) => {
     const state = getState();
@@ -102,27 +104,22 @@ export const uploadMission = (): any => {
     dispatch(setSyncStatus('SYNCING'));
     dispatch(setSyncProgress(0));
 
-    // Simulate sending waypoints one by one
-    const total = waypoints.length;
-    const timePerWaypoint = 500; // 500ms per waypoint simulation
-
-    for (let i = 0; i < total; i++) {
-      await new Promise(resolve => setTimeout(resolve, timePerWaypoint));
-      
-      // If user edited mission while uploading, cancel upload
-      if (getState().mission.syncStatus === 'UNSYNCED') {
-        dispatch(setSyncProgress(0));
-        return;
+    const unsubscribe = missionService.onProgress((status, progress, error) => {
+      if (status === 'UPLOADING' || status === 'VERIFYING') {
+        dispatch(setSyncStatus('SYNCING'));
+        dispatch(setSyncProgress(progress));
+      } else if (status === 'SYNCED') {
+        dispatch(setSyncStatus('SYNCED'));
+        dispatch(setSyncProgress(100));
+      } else if (status === 'FAILED') {
+        dispatch(setSyncStatus('ERROR'));
       }
+    });
 
-      dispatch(setSyncProgress(((i + 1) / total) * 100));
-    }
-
-    // Done
-    await new Promise(resolve => setTimeout(resolve, 500)); // Final pause
-    
-    if (getState().mission.syncStatus !== 'UNSYNCED') {
-      dispatch(setSyncStatus('SYNCED'));
+    try {
+      await missionService.uploadMission(waypoints);
+    } finally {
+      unsubscribe();
     }
   };
 };

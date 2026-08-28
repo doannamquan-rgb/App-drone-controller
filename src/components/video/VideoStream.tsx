@@ -1,28 +1,21 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { View, StyleSheet, Text } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useAppSelector } from '../../store/hooks';
+import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { selectVideoSettings } from '../../store/settings/settingsSlice';
+import { selectVideoStatus, setVideoStatus, setVideoError } from '../../store/connection/connectionSlice';
+import { videoConnectionService } from '../../services/connection/VideoConnectionService';
 
 export function VideoStream() {
-  const [hasError, setHasError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const dispatch = useAppDispatch();
   const videoSettings = useAppSelector(selectVideoSettings);
+  const videoStatus = useAppSelector(selectVideoStatus);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  // Determine video URL source
+  // Dynamic stream URL resolved by VideoConnectionService (MediaMTX HLS / RTSP / WebRTC)
   const videoSource = useMemo(() => {
-    if (videoSettings.source === 'Disabled') return null;
-    if (videoSettings.source === 'RTSP' && videoSettings.rtspUrl) {
-      return videoSettings.rtspUrl;
-    }
-    if (videoSettings.source === 'UDP H.264') {
-      return `udp://${videoSettings.udpListenAddress}:${videoSettings.udpPort}`;
-    }
-    if (videoSettings.source === 'MPEG-TS') {
-      return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-    }
-    return null;
+    return videoConnectionService.resolveStreamUrl(videoSettings);
   }, [videoSettings]);
 
   const player = useVideoPlayer(videoSource || '', (p) => {
@@ -32,25 +25,48 @@ export function VideoStream() {
     try {
       p.play();
     } catch (e: any) {
-      setHasError(true);
-      setErrorMessage(e.message || 'Stream playback error');
+      setLocalError(e.message || 'Playback initialization error');
+      videoConnectionService.notifyStreamError(e.message || 'Playback error');
     }
   });
 
+  const prevSourceRef = React.useRef<string | null>(videoSource);
+
+  useEffect(() => {
+    if (!player || !videoSource) return;
+    if (prevSourceRef.current !== videoSource) {
+      prevSourceRef.current = videoSource;
+      try {
+        player.replace(videoSource);
+        player.play();
+      } catch (e: any) {
+        setLocalError(e.message || 'Playback replace error');
+      }
+    }
+  }, [player, videoSource]);
+
   useEffect(() => {
     if (!player) return;
+
     const subPlaying = player.addListener('playingChange', (event) => {
       setIsPlaying(event.isPlaying);
       if (event.isPlaying) {
-        setHasError(false);
-        setErrorMessage(null);
+        setLocalError(null);
+        videoConnectionService.notifyStreamPlaying();
+        dispatch(setVideoStatus('STREAMING'));
+        dispatch(setVideoError(null));
+      } else {
+        videoConnectionService.notifyStreamStopped();
       }
     });
 
     const subStatus = player.addListener('statusChange', (event) => {
       if (event.status === 'error') {
-        setHasError(true);
-        setErrorMessage(event.error?.message || 'Cannot connect to stream');
+        const msg = event.error?.message || 'Media stream unreachable';
+        setLocalError(msg);
+        videoConnectionService.notifyStreamError(msg);
+        dispatch(setVideoStatus('ERROR'));
+        dispatch(setVideoError(msg));
       }
     });
 
@@ -58,7 +74,7 @@ export function VideoStream() {
       subPlaying.remove();
       subStatus.remove();
     };
-  }, [player]);
+  }, [player, dispatch]);
 
   if (videoSettings.source === 'Disabled' || !videoSource) {
     return null;
@@ -72,14 +88,17 @@ export function VideoStream() {
         nativeControls={false}
         contentFit="cover"
       />
-      {/* Non-intrusive stream status pill when connecting or waiting for stream */}
+      {/* Non-intrusive stream status indicator (Decoupled from Drone Control) */}
       {!isPlaying && (
         <View style={styles.connectingPill}>
-          <View style={[styles.statusDot, { backgroundColor: hasError ? '#ef4444' : '#f59e0b' }]} />
+          <View style={[
+            styles.statusDot, 
+            { backgroundColor: localError ? '#ef4444' : '#f59e0b' }
+          ]} />
           <Text numberOfLines={1} style={styles.connectingText}>
-            {hasError 
-              ? `STREAM OFFLINE: ${videoSettings.source} (${errorMessage || 'Waiting for stream'})`
-              : `CONNECTING ${videoSettings.source}...`
+            {localError 
+              ? `VIDEO: ${videoSettings.source} (${localError})`
+              : `CONNECTING VIDEO (${videoSettings.source})...`
             }
           </Text>
         </View>
@@ -104,7 +123,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 6,

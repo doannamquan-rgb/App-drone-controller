@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Switch, TouchableOpacity, ScrollView } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { 
   selectConnectionConfig, 
@@ -13,6 +14,8 @@ import {
 } from '../../store/settings/settingsSlice';
 import { 
   selectConnectionStatus, 
+  selectControlStatus,
+  selectVideoStatus,
   selectActivePortInfo,
   selectVehicleName,
   selectLatencyMs,
@@ -20,28 +23,38 @@ import {
   selectBytesReceived,
   setActiveConnectionInfo 
 } from '../../store/connection/connectionSlice';
-import { universalConnectionService } from '../../services/connection/UniversalConnectionService';
-import { ConnectionType, VehicleType, AutopilotType } from '../../settings/types/connection';
+import { controlConnectionService } from '../../services/connection/ControlConnectionService';
+import { videoConnectionService } from '../../services/connection/VideoConnectionService';
+import { selectVideoSettings } from '../../store/settings/settingsSlice';
+import { ConnectionType, VehicleType, AutopilotType, NetworkPath } from '../../settings/types/connection';
 
 export function ConnectionSettingsPanel() {
   const dispatch = useAppDispatch();
   const config = useAppSelector(selectConnectionConfig);
+  const videoSettings = useAppSelector(selectVideoSettings);
   const status = useAppSelector(selectConnectionStatus);
+  const controlStatus = useAppSelector(selectControlStatus);
+  const videoStatus = useAppSelector(selectVideoStatus);
   const portInfo = useAppSelector(selectActivePortInfo);
   const vehicleName = useAppSelector(selectVehicleName);
   const latencyMs = useAppSelector(selectLatencyMs);
   const packetsPerSec = useAppSelector(selectPacketsPerSec);
   const bytesReceived = useAppSelector(selectBytesReceived);
 
-  const isConnected = status === 'CONNECTED';
-  const isConnecting = status === 'CONNECTING';
+  const isConnected = controlStatus === 'CONNECTED';
+  const isConnecting = controlStatus === 'CONNECTING' || controlStatus === 'RECONNECTING';
 
-  const connectionTabs: { id: ConnectionType; label: string; icon: string }[] = [
-    { id: 'UDP', label: 'UDP', icon: '📶' },
-    { id: 'TCP', label: 'TCP', icon: '🌐' },
-    { id: 'USB_SERIAL', label: 'USB OTG', icon: '🔌' },
-    { id: 'BLUETOOTH', label: 'BLUETOOTH', icon: '📡' },
-    { id: 'MOCK', label: 'SITL MOCK', icon: '🎮' },
+  const connectionTabs: { id: ConnectionType; label: string; icon: string; desc: string }[] = [
+    { id: 'UDP', label: 'Wi-Fi / 4G (UDP)', icon: '📶', desc: 'Direct MAVLink over UDP (14550)' },
+    { id: 'MOCK', label: 'SITL MOCK', icon: '🎮', desc: 'Virtual flight dynamics & mock feed' },
+    { id: 'TCP', label: 'TCP Client', icon: '🌐', desc: 'Direct TCP stream' },
+    { id: 'USB_SERIAL', label: 'USB OTG', icon: '🔌', desc: 'Direct FTDI/UART Serial' },
+    { id: 'BLUETOOTH', label: 'Bluetooth', icon: '📡', desc: 'Wireless serial bridge' },
+  ];
+
+  const networkModes: { id: NetworkPath; label: string; desc: string }[] = [
+    { id: 'WIFI_DIRECT', label: 'Mode 1: Direct Wi-Fi LAN', desc: 'Direct to Raspberry Pi AP / Local Wi-Fi' },
+    { id: 'CELLULAR_4G', label: 'Mode 2: 4G Fleet Cloud', desc: 'Via qcloudstation Server (45.117.171.237)' },
   ];
 
   const vehicleTypes: { id: VehicleType; label: string; icon: string }[] = [
@@ -58,44 +71,94 @@ export function ConnectionSettingsPanel() {
     { id: 'INAV', label: 'INAV / MSP' },
   ];
 
-  const baudRates = [9600, 19200, 38400, 57600, 115200, 500000, 921600];
+  const handleSelectNetworkMode = (mode: NetworkPath) => {
+    if (mode === 'WIFI_DIRECT') {
+      const host = config.udp.wifiHost || config.udp.remoteHost || '192.168.1.100';
+      dispatch(updateUdpSettings({
+        networkPath: mode,
+        remoteHost: host,
+        wifiHost: host,
+        remotePort: config.udp.wifiPort || 14550,
+      }));
+    } else if (mode === 'CELLULAR_4G') {
+      const host = config.udp.cloudHost || '45.117.171.237';
+      dispatch(updateUdpSettings({
+        networkPath: mode,
+        remoteHost: host,
+        cloudHost: host,
+        remotePort: config.udp.cloudPort || 14550,
+      }));
+    }
+  };
 
   const handleConnect = () => {
     let portString = 'UDP: 14550';
-    if (config.type === 'UDP') portString = `UDP: ${config.udp.remotePort}`;
-    else if (config.type === 'TCP') portString = `TCP: ${config.tcp.host}:${config.tcp.port}`;
-    else if (config.type === 'USB_SERIAL') portString = `USB: ${config.serial.baudRate} baud`;
-    else if (config.type === 'BLUETOOTH') portString = `BLE: ${config.bluetooth.deviceName}`;
-    else if (config.type === 'MOCK') portString = 'SITL VIRTUAL';
+    if (config.type === 'UDP') {
+      const endpoint = controlConnectionService.resolveTargetEndpoint(config);
+      portString = `UDP: ${endpoint.host}:${endpoint.port}`;
+    } else if (config.type === 'TCP') {
+      portString = `TCP: ${config.tcp.host}:${config.tcp.port}`;
+    } else if (config.type === 'USB_SERIAL') {
+      portString = `USB: ${config.serial.baudRate} baud`;
+    } else if (config.type === 'BLUETOOTH') {
+      portString = `BLE: ${config.bluetooth.deviceName}`;
+    } else if (config.type === 'MOCK') {
+      portString = 'SITL VIRTUAL';
+    }
 
     dispatch(setActiveConnectionInfo({ type: config.type, portInfo: portString }));
-    universalConnectionService.connect(config);
+    controlConnectionService.connect(config);
+    videoConnectionService.connect(videoSettings, config.type === 'MOCK');
   };
 
   const handleDisconnect = () => {
-    universalConnectionService.disconnect();
+    controlConnectionService.disconnect();
+    videoConnectionService.disconnect();
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>UNIVERSAL DRONE CONNECTION</Text>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.content}
+      nestedScrollEnabled={true}
+      showsVerticalScrollIndicator={true}
+    >
+      <Text style={styles.title}>DRONE CONTROL & TELEMETRY</Text>
 
-      {/* Real-time Status Card */}
+      {/* Real-time Status Card (Showing Separated Control & Video Links) */}
       <View style={styles.card}>
         <View style={styles.statusRow}>
-          <View style={styles.statusBadge}>
-            <View style={[
-              styles.statusDot, 
-              { backgroundColor: isConnected ? '#22c55e' : isConnecting ? '#f59e0b' : '#ef4444' }
-            ]} />
-            <Text style={styles.statusText}>{status}</Text>
+          <View style={styles.statusGroup}>
+            <Text style={styles.statusHeader}>CONTROL LINK (MAVLINK UDP)</Text>
+            <View style={styles.statusBadge}>
+              <View style={[
+                styles.statusDot, 
+                { backgroundColor: isConnected ? '#22c55e' : isConnecting ? '#f59e0b' : '#ef4444' }
+              ]} />
+              <Text style={styles.statusText}>{controlStatus}</Text>
+            </View>
           </View>
+
+          <View style={styles.statusGroup}>
+            <Text style={styles.statusHeader}>VIDEO STREAM (MEDIAMTX)</Text>
+            <View style={styles.statusBadge}>
+              <View style={[
+                styles.statusDot, 
+                { backgroundColor: videoStatus === 'STREAMING' ? '#22c55e' : videoStatus === 'CONNECTING' ? '#f59e0b' : '#64748b' }
+              ]} />
+              <Text style={styles.statusText}>{videoStatus}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.subInfoRow}>
           <Text style={styles.portInfo}>{portInfo}</Text>
           <Text style={styles.vehicleBadge}>{vehicleName}</Text>
         </View>
+
         <View style={styles.metricsRow}>
           <Text style={styles.metricText}>Latency: <Text style={styles.metricVal}>{latencyMs ?? '--'} ms</Text></Text>
-          <Text style={styles.metricText}>Traffic: <Text style={styles.metricVal}>{packetsPerSec} pkt/s</Text></Text>
+          <Text style={styles.metricText}>Telemetry: <Text style={styles.metricVal}>{packetsPerSec} pkt/s</Text></Text>
           <Text style={styles.metricText}>Data RX: <Text style={styles.metricVal}>{(bytesReceived / 1024).toFixed(1)} KB</Text></Text>
         </View>
       </View>
@@ -120,21 +183,47 @@ export function ConnectionSettingsPanel() {
       {/* Protocol Config Body */}
       {config.type === 'UDP' && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>UDP Network Parameters</Text>
+          <Text style={styles.sectionTitle}>Network Topology Selection</Text>
+          <View style={styles.modeGroup}>
+            {networkModes.map((mode) => {
+              const isModeActive = config.udp.networkPath === mode.id;
+              return (
+                <TouchableOpacity
+                  key={mode.id}
+                  style={[styles.modeCard, isModeActive && styles.modeCardActive]}
+                  onPress={() => handleSelectNetworkMode(mode.id)}
+                >
+                  <Text style={[styles.modeTitle, isModeActive && styles.modeTitleActive]}>
+                    {mode.label}
+                  </Text>
+                  <Text style={styles.modeDesc}>{mode.desc}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <View style={styles.inputRow}>
-            <Text style={styles.label}>Remote Host (Companion Computer / WiFi Telemetry IP)</Text>
+            <Text style={styles.label}>
+              {config.udp.networkPath === 'CELLULAR_4G' ? 'Fleet Cloud Server Host' : 'Raspberry Pi Wi-Fi IP'}
+            </Text>
             <TextInput 
               style={styles.input}
               value={config.udp.remoteHost}
-              onChangeText={(text) => dispatch(updateUdpSettings({ remoteHost: text }))}
-              placeholder="0.0.0.0 or 192.168.1.100"
+              onChangeText={(text) => {
+                if (config.udp.networkPath === 'CELLULAR_4G') {
+                  dispatch(updateUdpSettings({ remoteHost: text, cloudHost: text }));
+                } else {
+                  dispatch(updateUdpSettings({ remoteHost: text, wifiHost: text }));
+                }
+              }}
+              placeholder={config.udp.networkPath === 'CELLULAR_4G' ? '45.117.171.237' : '192.168.1.100'}
               placeholderTextColor="#555"
             />
           </View>
 
           <View style={styles.row}>
             <View style={[styles.inputRow, { flex: 1, marginRight: 10 }]}>
-              <Text style={styles.label}>Remote Port</Text>
+              <Text style={styles.label}>Target MAVLink Port</Text>
               <TextInput 
                 style={styles.input}
                 value={config.udp.remotePort.toString()}
@@ -155,11 +244,20 @@ export function ConnectionSettingsPanel() {
         </View>
       )}
 
+      {config.type === 'MOCK' && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>SITL Virtual Simulation Mode</Text>
+          <Text style={styles.mockInfo}>
+            Mô phỏng bay SITL hoàn chỉnh: Hỗ trợ kiểm thử Virtual Joystick, Arming, Chuyển chế độ bay, Lập kế hoạch bay Mission và Giả lập Video độc lập mà không cần drone vật lý.
+          </Text>
+        </View>
+      )}
+
       {config.type === 'TCP' && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>TCP Client Parameters</Text>
           <View style={styles.inputRow}>
-            <Text style={styles.label}>TCP Server Host (IP or Domain)</Text>
+            <Text style={styles.label}>TCP Server Host</Text>
             <TextInput 
               style={styles.input}
               value={config.tcp.host}
@@ -182,21 +280,7 @@ export function ConnectionSettingsPanel() {
 
       {config.type === 'USB_SERIAL' && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>USB OTG & Serial Telemetry</Text>
-          <Text style={styles.label}>Baudrate</Text>
-          <View style={styles.baudRow}>
-            {baudRates.map((b) => (
-              <TouchableOpacity
-                key={b}
-                style={[styles.baudBtn, config.serial.baudRate === b && styles.baudBtnActive]}
-                onPress={() => dispatch(updateSerialSettings({ baudRate: b }))}
-              >
-                <Text style={[styles.baudBtnText, config.serial.baudRate === b && styles.baudBtnTextActive]}>
-                  {b}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <Text style={styles.sectionTitle}>USB Serial Telemetry (Direct)</Text>
           <View style={styles.inputRow}>
             <Text style={styles.label}>Device Port Path</Text>
             <TextInput 
@@ -212,7 +296,7 @@ export function ConnectionSettingsPanel() {
 
       {config.type === 'BLUETOOTH' && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Bluetooth Wireless Telemetry</Text>
+          <Text style={styles.sectionTitle}>Bluetooth Telemetry</Text>
           <View style={styles.inputRow}>
             <Text style={styles.label}>Device Name</Text>
             <TextInput 
@@ -223,25 +307,6 @@ export function ConnectionSettingsPanel() {
               placeholderTextColor="#555"
             />
           </View>
-          <View style={styles.inputRow}>
-            <Text style={styles.label}>MAC Address</Text>
-            <TextInput 
-              style={styles.input}
-              value={config.bluetooth.deviceId}
-              onChangeText={(text) => dispatch(updateBluetoothSettings({ deviceId: text }))}
-              placeholder="00:14:03:05:5A:B1"
-              placeholderTextColor="#555"
-            />
-          </View>
-        </View>
-      )}
-
-      {config.type === 'MOCK' && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>SITL Virtual Flight Simulation</Text>
-          <Text style={styles.mockInfo}>
-            Chế độ mô phỏng bay ảo SITL (Software In The Loop) cung cấp đầy đủ thông số động học, GPS 3D Fix, EKF3, và cảm biến phụ trợ để thử nghiệm đầy đủ tính năng bay mà không cần thiết bị thật.
-          </Text>
         </View>
       )}
 
@@ -284,12 +349,12 @@ export function ConnectionSettingsPanel() {
       <View style={styles.buttonRow}>
         {isConnected ? (
           <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
-            <Text style={styles.actionButtonText}>🔴 DISCONNECT CURRENT DRONE</Text>
+            <Text style={styles.actionButtonText}>🔴 DISCONNECT DRONE CONTROL</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity style={styles.primaryButton} onPress={handleConnect}>
             <Text style={styles.actionButtonText}>
-              {isConnecting ? '⏳ CONNECTING...' : '🔌 CONNECT TO DRONE'}
+              {isConnecting ? '⏳ CONNECTING CONTROL...' : '🔌 CONNECT TO DRONE'}
             </Text>
           </TouchableOpacity>
         )}
@@ -304,6 +369,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050505',
   },
   content: {
+    flexGrow: 1,
     padding: 24,
     paddingBottom: 60,
   },
@@ -326,7 +392,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 10,
+  },
+  statusGroup: {
+    flexDirection: 'column',
+    gap: 4,
+  },
+  statusHeader: {
+    color: '#94a3b8',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -342,6 +418,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 12,
+  },
+  subInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   portInfo: {
     color: '#38bdf8',
@@ -370,11 +451,13 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 18,
   },
   tabBtn: {
     flex: 1,
+    minWidth: 110,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -383,6 +466,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
     paddingVertical: 10,
+    paddingHorizontal: 8,
     borderRadius: 6,
   },
   tabBtnActive: {
@@ -416,6 +500,35 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  modeGroup: {
+    flexDirection: 'column',
+    gap: 8,
+    marginBottom: 14,
+  },
+  modeCard: {
+    backgroundColor: '#161d2b',
+    borderWidth: 1,
+    borderColor: '#333',
+    padding: 10,
+    borderRadius: 6,
+  },
+  modeCardActive: {
+    borderColor: '#38bdf8',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+  },
+  modeTitle: {
+    color: '#94a3b8',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  modeTitleActive: {
+    color: '#38bdf8',
+  },
+  modeDesc: {
+    color: '#64748b',
+    fontSize: 11,
+  },
   row: {
     flexDirection: 'row',
   },
@@ -437,32 +550,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     fontSize: 13,
     fontVariant: ['tabular-nums'],
-  },
-  baudRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 12,
-  },
-  baudBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 5,
-    backgroundColor: '#161d2b',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  baudBtnActive: {
-    borderColor: '#38bdf8',
-    backgroundColor: 'rgba(56, 189, 248, 0.25)',
-  },
-  baudBtnText: {
-    color: '#888',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  baudBtnTextActive: {
-    color: '#38bdf8',
   },
   mockInfo: {
     color: '#94a3b8',

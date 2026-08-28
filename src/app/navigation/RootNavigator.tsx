@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   content: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
   },
   navItem: {
     width: 38,

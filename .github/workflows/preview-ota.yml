@@ -1,0 +1,50 @@
+name: Preview OTA Update
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'App.tsx'
+      - 'index.ts'
+      - 'assets/**'
+      - 'package.json'
+      - 'app.json'
+  workflow_dispatch:
+
+jobs:
+  update-preview:
+    name: Typecheck, Test & Publish Preview OTA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🔍 TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: 🧪 Run Unit Tests & Safety Matrix
+        run: npm test
+
+      - name: 🚀 Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 📡 Publish OTA Update to Preview Channel
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli update --channel preview --auto --non-interactive

@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, Switch, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Switch, TouchableOpacity } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { selectMavlinkSettings, updateMavlinkSettings } from '../../store/settings/settingsSlice';
 import { selectConnectionStatus } from '../../store/connection/connectionSlice';
@@ -10,7 +11,12 @@ export function MavlinkSettingsPanel() {
   const status = useAppSelector(selectConnectionStatus);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.content}
+      nestedScrollEnabled={true}
+      showsVerticalScrollIndicator={true}
+    >
       <Text style={styles.title}>MAVLINK SETTINGS</Text>
 
       <View style={styles.card}>
@@ -135,6 +141,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050505',
   },
   content: {
+    flexGrow: 1,
     padding: 30,
   },
   title: {

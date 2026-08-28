@@ -4,10 +4,17 @@ export type VehicleType = 'COPTER' | 'PLANE' | 'VTOL' | 'ROVER' | 'SUB' | 'GENER
 export type AutopilotType = 'ARDUPILOT' | 'PX4' | 'INAV';
 export type ProtocolType = 'MAVLINK_V2' | 'MAVLINK_V1';
 
+export type NetworkPath = 'WIFI_DIRECT' | 'CELLULAR_4G' | 'SIMULATED';
+
 export interface UdpSettings {
   remoteHost: string;
   remotePort: number;
   localPort: number;
+  networkPath: NetworkPath;
+  wifiHost: string;
+  wifiPort: number;
+  cloudHost: string;
+  cloudPort: number;
   autoConnect: boolean;
   reconnect: boolean;
   reconnectDelayMs: number;

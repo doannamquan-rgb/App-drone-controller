@@ -5,6 +5,7 @@ import telemetryReducer from './telemetry/telemetrySlice';
 import commandReducer from './command/commandSlice';
 import settingsReducer from './settings/settingsSlice';
 import missionReducer from './mission/missionSlice';
+import updateReducer from './update/updateSlice';
 
 export const store = configureStore({
   reducer: {
@@ -14,6 +15,7 @@ export const store = configureStore({
     command: commandReducer,
     settings: settingsReducer,
     mission: missionReducer,
+    update: updateReducer,
   },
 });
 

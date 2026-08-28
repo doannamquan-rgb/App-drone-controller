@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { selectPiGatewaySettings, updatePiGatewaySettings } from '../../store/settings/settingsSlice';
 import { selectConnectionStatus } from '../../store/connection/connectionSlice';
@@ -19,7 +20,12 @@ export function PiGatewaySettingsPanel() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.content}
+      nestedScrollEnabled={true}
+      showsVerticalScrollIndicator={true}
+    >
       <Text style={styles.title}>RASPBERRY PI GATEWAY</Text>
 
       <View style={styles.card}>
@@ -116,6 +122,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050505',
   },
   content: {
+    flexGrow: 1,
     padding: 30,
   },
   title: {

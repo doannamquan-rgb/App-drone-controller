@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -10,6 +11,7 @@ import { VideoSettingsPanel } from '../../components/settings/VideoSettingsPanel
 import { CameraSettingsPanel } from '../../components/settings/CameraSettingsPanel';
 import { TelemetrySettingsPanel } from '../../components/settings/TelemetrySettingsPanel';
 import { JoystickSettingsPanel } from '../../components/settings/JoystickSettingsPanel';
+import { SystemSettingsPanel } from '../../components/settings/SystemSettingsPanel';
 
 type SettingsTab = 'CONNECTION' | 'MAVLINK' | 'PI_GATEWAY' | 'VIDEO' | 'CAMERA' | 'TELEMETRY' | 'JOYSTICK' | 'MAP' | 'MISSION' | 'SAFETY' | 'LOGGING' | 'DIAGNOSTICS' | 'SYSTEM';
 
@@ -49,6 +51,8 @@ export function SettingsScreen() {
         return <TelemetrySettingsPanel />;
       case 'JOYSTICK':
         return <JoystickSettingsPanel />;
+      case 'SYSTEM':
+        return <SystemSettingsPanel />;
       default:
         return (
           <View style={styles.placeholderContainer}>
@@ -73,7 +77,12 @@ export function SettingsScreen() {
 
       <View style={styles.body}>
         {/* Sidebar */}
-        <View style={styles.sidebar}>
+        <ScrollView 
+          style={styles.sidebar}
+          contentContainerStyle={styles.sidebarContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+        >
           {TABS.map((tab) => (
             <TouchableOpacity 
               key={tab.id}
@@ -85,7 +94,7 @@ export function SettingsScreen() {
               </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
 
         {/* Content */}
         <View style={styles.content}>
@@ -135,11 +144,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   sidebar: {
-    width: 220,
+    width: 200,
+    flexGrow: 0,
+    flexShrink: 0,
     backgroundColor: '#0a0a0a',
     borderRightWidth: 1,
     borderRightColor: '#222',
+  },
+  sidebarContent: {
     paddingTop: 10,
+    paddingBottom: 30,
   },
   sidebarItem: {
     paddingVertical: 15,

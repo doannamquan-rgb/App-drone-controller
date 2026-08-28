@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Switch } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { selectJoystickSettings, updateJoystickSettings, selectShowJoysticks, setShowJoysticks } from '../../store/settings/settingsSlice';
 
@@ -59,7 +60,12 @@ export function JoystickSettingsPanel() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.content}
+      nestedScrollEnabled={true}
+      showsVerticalScrollIndicator={true}
+    >
       <Text style={styles.title}>JOYSTICK SETTINGS</Text>
 
       {/* On-Screen Virtual Joysticks Display Toggle */}
@@ -153,6 +159,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050505',
   },
   content: {
+    flexGrow: 1,
     padding: 30,
   },
   wizardContainer: {

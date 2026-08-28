@@ -8,6 +8,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
+import { updateService } from './src/services/update/updateService';
+
 export default function App() {
   useEffect(() => {
     async function lockLandscape() {
@@ -18,6 +20,7 @@ export default function App() {
       }
     }
     lockLandscape();
+    updateService.init();
   }, []);
 
   return (

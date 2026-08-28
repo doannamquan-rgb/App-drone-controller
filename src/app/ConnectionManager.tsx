@@ -1,9 +1,15 @@
-import { useEffect } from 'react';
-import { universalConnectionService, UniversalTelemetryData } from '../services/connection/UniversalConnectionService';
+import { useEffect, useRef } from 'react';
+import { controlConnectionService } from '../services/connection/ControlConnectionService';
+import { videoConnectionService } from '../services/connection/VideoConnectionService';
 import { heartbeatService } from '../services/connection/HeartbeatService';
-import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { UniversalTelemetryData } from '../services/connection/UniversalConnectionService';
+import { PROTOCOL_CONSTANTS } from '../config/protocolConstants';
+import { useAppDispatch } from '../store/hooks';
 import { 
   setStatus, 
+  setControlStatus,
+  setVideoStatus,
+  setVideoError,
   setHeartbeat, 
   setLatency, 
   updateTrafficStats, 
@@ -23,26 +29,37 @@ export function ConnectionManager() {
   const dispatch = useAppDispatch();
 
   useEffect(() => {
-    // 1. Subscribe to status changes
-    const unsubscribeStatus = universalConnectionService.onStatusChange((status) => {
-      dispatch(setStatus(status));
+    // 1. Subscribe to Control Link status changes
+    const unsubscribeControlStatus = controlConnectionService.onStatusChange((status) => {
+      dispatch(setControlStatus(status));
       if (status === 'CONNECTED') {
         heartbeatService.start();
       } else {
         heartbeatService.stop();
-        dispatch(clearTelemetry());
-        dispatch(setArmed(false));
-        dispatch(setFlightMode('DISCONNECTED'));
-        dispatch(updateTrafficStats({ bytesRx: 0, bytesTx: 0, pps: 0 }));
+        if (status === 'DISCONNECTED' || status === 'ERROR') {
+          dispatch(clearTelemetry());
+          dispatch(setArmed(false));
+          dispatch(setFlightMode('DISCONNECTED'));
+          dispatch(updateTrafficStats({ bytesRx: 0, bytesTx: 0, pps: 0 }));
+        }
       }
     });
 
+    // 2. Subscribe to Video Stream status changes (Completely Decoupled)
+    const unsubscribeVideoStatus = videoConnectionService.onStatusChange((status, error) => {
+      dispatch(setVideoStatus(status));
+      dispatch(setVideoError(error || null));
+    });
+
+    // Field-specific UI Telemetry Throttling Timestamps
+    let lastAttitudeTick = 0;
+    let lastGpsTick = 0;
     let lastSlowTick = 0;
     let lastArmed: boolean | null = null;
     let lastFlightMode: string | null = null;
 
-    // 2. Subscribe to telemetry (strictly real packet updates)
-    const unsubscribeTelemetry = universalConnectionService.onTelemetry((data: UniversalTelemetryData) => {
+    // 3. Subscribe to real-time Telemetry stream
+    const unsubscribeTelemetry = controlConnectionService.onTelemetry((data: UniversalTelemetryData) => {
       const timestamp = data.timestamp;
       const now = Date.now();
       
@@ -50,40 +67,47 @@ export function ConnectionManager() {
 
       heartbeatService.receiveHeartbeat();
 
-      // High-Frequency Flight Dynamics (Attitude, GPS, Velocity)
-      dispatch(updateAttitude({
-        value: {
-          roll: data.roll || 0,
-          pitch: data.pitch || 0,
-          yaw: data.yaw || 0,
-        },
-        timestamp,
-      }));
+      // Tier 1: Attitude & Artificial Horizon HUD (High-frequency ~20 Hz / 50ms)
+      if (now - lastAttitudeTick >= PROTOCOL_CONSTANTS.THROTTLE_ATTITUDE_MS) {
+        lastAttitudeTick = now;
+        dispatch(updateAttitude({
+          value: {
+            roll: data.roll || 0,
+            pitch: data.pitch || 0,
+            yaw: data.yaw || 0,
+          },
+          timestamp,
+        }));
+      }
 
-      dispatch(updateGps({
-        value: {
-          latitude: data.latitude,
-          longitude: data.longitude,
-          altitude: data.altitude,
-          satellites: data.satellites || 0,
-          hdop: data.hdop || 0,
-          gpsFix: (data.satellites && data.satellites >= 6) ? 3 : 0,
-        },
-        timestamp,
-      }));
+      // Tier 2: GPS Position, Speed & Velocity (~5 Hz / 200ms)
+      if (now - lastGpsTick >= PROTOCOL_CONSTANTS.THROTTLE_GPS_VELOCITY_MS) {
+        lastGpsTick = now;
+        dispatch(updateGps({
+          value: {
+            latitude: data.latitude,
+            longitude: data.longitude,
+            altitude: data.altitude,
+            satellites: data.satellites || 0,
+            hdop: data.hdop || 0,
+            gpsFix: (data.satellites && data.satellites >= 6) ? 3 : 0,
+          },
+          timestamp,
+        }));
 
-      dispatch(updateVelocity({
-        value: {
-          groundSpeed: data.speed,
-          verticalSpeed: 0,
-          velocityX: 0,
-          velocityY: 0,
-          velocityZ: 0,
-        },
-        timestamp,
-      }));
+        dispatch(updateVelocity({
+          value: {
+            groundSpeed: data.speed,
+            verticalSpeed: 0,
+            velocityX: 0,
+            velocityY: 0,
+            velocityZ: 0,
+          },
+          timestamp,
+        }));
+      }
 
-      // State changes (only dispatch when changed)
+      // State transitions (Immediate on change)
       if (lastArmed !== data.armed) {
         lastArmed = data.armed;
         dispatch(setArmed(data.armed));
@@ -93,8 +117,8 @@ export function ConnectionManager() {
         dispatch(setFlightMode(data.mode));
       }
 
-      // Low-Frequency Stats (Throttled to 1 Hz to maximize CPU performance & 60 FPS)
-      if (now - lastSlowTick > 1000) {
+      // Tier 3: Low-Frequency Stats (Battery, Diagnostics, Traffic - 1 Hz / 1000ms)
+      if (now - lastSlowTick >= PROTOCOL_CONSTANTS.THROTTLE_BATTERY_STATS_MS) {
         lastSlowTick = now;
         dispatch(setHeartbeat(timestamp));
         dispatch(setLatency(data.latencyMs));
@@ -126,20 +150,21 @@ export function ConnectionManager() {
       }
     });
 
-    // 3. Subscribe to Heartbeat failures
+    // 4. Subscribe to Heartbeat watchdog failures
     const unsubscribeHeartbeat = heartbeatService.onHeartbeat((isAlive) => {
       if (!isAlive) {
-        dispatch(setStatus('ERROR'));
-        universalConnectionService.disconnect();
+        dispatch(setControlStatus('DEGRADED'));
       }
     });
 
     // Cleanup
     return () => {
-      unsubscribeStatus();
+      unsubscribeControlStatus();
+      unsubscribeVideoStatus();
       unsubscribeTelemetry();
       unsubscribeHeartbeat();
-      universalConnectionService.disconnect();
+      controlConnectionService.disconnect();
+      videoConnectionService.disconnect();
     };
   }, [dispatch]);
 
