@@ -1,3 +1,18 @@
+# ==============================================================================
+# DroneGSC - Local Windows Camera Streamer Mockup
+# ==============================================================================
+# NOTE: This script is for LOCAL WINDOWS DEVELOPMENT/TESTING ONLY.
+# It captures the local Windows webcam via DirectShow (dshow) and streams RTSP
+# to MediaMTX on localhost:8554 for UI testing.
+#
+# PRODUCTION DEPLOYMENT (Raspberry Pi 5 / CM5):
+# On the actual drone, the camera stream runs directly on the Raspberry Pi:
+#   1. Capture via hardware CSI camera (Picamera2 / libcamera-vid) or USB (V4L2)
+#   2. Hardware H.264 Encoder (ultrafast, zerolatency, baseline profile, GOP=15)
+#   3. Push RTSP stream to MediaMTX on localhost:8554 or VPS at rtsp://<vps_ip>:8554/<uuid>/cam0
+#   4. MediaMTX republishes as HLS (:8888) and WebRTC WHEP (:8889)
+# ==============================================================================
+
 $ErrorActionPreference = "Stop"
 
 $ToolsDir = "D:\ANITECH GCS\tools\streamer"

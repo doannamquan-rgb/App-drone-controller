@@ -3,6 +3,7 @@ import { ConnectionConfig, ConnectionType, NetworkPath } from '../../settings/ty
 import { UniversalTelemetryData } from './UniversalConnectionService';
 import { mockControlService } from './MockControlService';
 import { AppConfig } from '../../config';
+import { ControlMessageType, FlightControlPacket } from '../../types/joystick';
 
 export type ControlConnectionStatus = 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'DEGRADED' | 'RECONNECTING' | 'ERROR';
 
@@ -65,13 +66,23 @@ export class ControlConnectionService {
   private ws: WebSocket | null = null;
   private state: UniversalTelemetryData = createInitialState();
   
+  private sessionId: string = '';
+  private lastRxSessionId: string = '';
   private lastHeartbeatTime: number = 0;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTxInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  private txSequenceNumber: number = 0;
+  private lastRxSequenceNumber: number = 0;
 
   private bytesRx = 0;
   private bytesTx = 0;
   private currentPps = 0;
+
+  private generateSessionId(): string {
+    return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  }
 
   /**
    * Resolves the target MAVLink UDP endpoint according to active topology (Mode 1: Wi-Fi Direct vs Mode 2: 4G Cloud)
@@ -103,6 +114,12 @@ export class ControlConnectionService {
 
     this.activeConfig = config as ConnectionConfig;
     const cType = config?.type || 'UDP';
+
+    // Reset sequence numbers and start a fresh session on new connection attempt
+    this.sessionId = this.generateSessionId();
+    this.txSequenceNumber = 0;
+    this.lastRxSequenceNumber = 0;
+    this.lastRxSessionId = '';
 
     if (cType === 'MOCK') {
       this.connectMock(config);
@@ -145,6 +162,7 @@ export class ControlConnectionService {
     });
 
     this.startHeartbeatWatchdog();
+    this.startHeartbeatTx();
   }
 
   private connectNetwork(config?: Partial<ConnectionConfig>) {
@@ -214,19 +232,29 @@ export class ControlConnectionService {
         hasOpened = true;
         handled = true;
         clearTimeout(connectTimeout);
-        console.log(`[Control MAVLink] Successfully connected to MAVLink endpoint: ${wsUrl}`);
+        console.log(`[Control MAVLink] Successfully connected to MAVLink endpoint: ${wsUrl} (Session: ${this.sessionId})`);
         this.lastHeartbeatTime = Date.now();
+        this.txSequenceNumber = 0;
+        this.lastRxSequenceNumber = 0;
         this.setStatus('CONNECTED');
         this.startHeartbeatWatchdog();
+        this.startHeartbeatTx();
       };
 
       socket.onmessage = (event) => {
         try {
           const parsed = JSON.parse(event.data);
           if (parsed.type === 'TELEMETRY' && parsed.data) {
-            this.handleIncomingTelemetry(parsed.data);
+            this.handleIncomingTelemetry(parsed.data, parsed.seq, parsed.sessionId || parsed.session_id);
           } else if (parsed.type === 'HEARTBEAT') {
             this.lastHeartbeatTime = Date.now();
+            if (parsed.sessionId && parsed.sessionId !== this.lastRxSessionId) {
+              this.lastRxSessionId = parsed.sessionId;
+              this.lastRxSequenceNumber = 0;
+            }
+            if (parsed.seq !== undefined) {
+              this.lastRxSequenceNumber = parsed.seq;
+            }
           }
         } catch (e) {}
       };
@@ -240,6 +268,7 @@ export class ControlConnectionService {
       };
 
       socket.onclose = () => {
+        this.stopHeartbeatTx();
         if (hasOpened && this.status === 'CONNECTED') {
           console.warn('[Control MAVLink] Socket closed unexpectedly.');
           this.setStatus('RECONNECTING');
@@ -256,7 +285,23 @@ export class ControlConnectionService {
     }
   }
 
-  private handleIncomingTelemetry(telemData: Partial<UniversalTelemetryData>) {
+  private handleIncomingTelemetry(telemData: Partial<UniversalTelemetryData>, seq?: number, incomingSessionId?: string) {
+    // If incoming message belongs to a new session, reset sequence watchdog to prevent stale rejection
+    if (incomingSessionId && incomingSessionId !== this.lastRxSessionId) {
+      console.log(`[Control MAVLink] New session detected: ${incomingSessionId}, resetting sequence tracker.`);
+      this.lastRxSessionId = incomingSessionId;
+      this.lastRxSequenceNumber = 0;
+    }
+
+    // Drop delayed/out-of-order packets if seq is present (with sanity wrap window)
+    if (seq !== undefined && seq <= this.lastRxSequenceNumber && (this.lastRxSequenceNumber - seq < 10000)) {
+      console.warn(`[Control MAVLink] Dropped out-of-order telemetry seq=${seq}, lastSeq=${this.lastRxSequenceNumber}`);
+      return;
+    }
+    if (seq !== undefined) {
+      this.lastRxSequenceNumber = seq;
+    }
+
     this.lastHeartbeatTime = Date.now();
     this.bytesRx += 128;
     this.currentPps = 10;
@@ -277,6 +322,9 @@ export class ControlConnectionService {
     this.telemetryListeners.forEach(l => l(this.state));
   }
 
+  /**
+   * Autonomous Heartbeat Watchdog (Monitors incoming telemetry/heartbeats from Pi)
+   */
   private startHeartbeatWatchdog() {
     if (this.heartbeatInterval) return;
 
@@ -300,6 +348,56 @@ export class ControlConnectionService {
     }
   }
 
+  /**
+   * GCS Heartbeat TX Loop (Sends periodic heartbeat packets from mobile GCS to Pi/Pixhawk)
+   * Essential to keep vehicle/companion watchdog alive even when joysticks are idle.
+   */
+  private startHeartbeatTx() {
+    if (this.heartbeatTxInterval) return;
+
+    this.heartbeatTxInterval = setInterval(() => {
+      if (this.status !== 'CONNECTED') return;
+      this.sendHeartbeat();
+    }, 1000); // 1 Hz heartbeat transmission
+  }
+
+  private stopHeartbeatTx() {
+    if (this.heartbeatTxInterval) {
+      clearInterval(this.heartbeatTxInterval);
+      this.heartbeatTxInterval = null;
+    }
+  }
+
+  private sendHeartbeat() {
+    this.txSequenceNumber++;
+    this.bytesTx += 32;
+
+    if (this.activeConfig?.type === 'MOCK') {
+      return;
+    }
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        const token = this.activeConfig?.udp?.authToken || 'UAVLink_GCS_Default_Token_2026';
+        const packet: FlightControlPacket = {
+          sessionId: this.sessionId,
+          seq: this.txSequenceNumber,
+          timestamp: Date.now(),
+          type: 'HEARTBEAT',
+          token,
+          payload: {
+            source: 'DRONEGSC_MOBILE',
+            vehicleType: this.activeConfig?.vehicleType || 'COPTER',
+            autopilot: this.activeConfig?.autopilot || 'ARDUPILOT',
+          },
+        };
+        this.ws.send(JSON.stringify(packet));
+      } catch (e) {
+        console.error('[Control MAVLink] Failed to send GCS heartbeat:', e);
+      }
+    }
+  }
+
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
 
@@ -315,6 +413,7 @@ export class ControlConnectionService {
   disconnect() {
     this.setStatus('DISCONNECTED');
     this.stopHeartbeatWatchdog();
+    this.stopHeartbeatTx();
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -324,6 +423,10 @@ export class ControlConnectionService {
       this.ws = null;
     }
     mockControlService.disconnect();
+    this.sessionId = '';
+    this.txSequenceNumber = 0;
+    this.lastRxSequenceNumber = 0;
+    this.lastRxSessionId = '';
     this.state = createInitialState();
     this.telemetryListeners.forEach(l => l(this.state));
   }
@@ -334,6 +437,18 @@ export class ControlConnectionService {
 
   getState(): UniversalTelemetryData {
     return this.state;
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  getTxSequenceNumber(): number {
+    return this.txSequenceNumber;
+  }
+
+  getLastRxSequenceNumber(): number {
+    return this.lastRxSequenceNumber;
   }
 
   onTelemetry(listener: TelemetryListener) {
@@ -359,13 +474,14 @@ export class ControlConnectionService {
   /**
    * Send high-priority control command directly to UAVLink-Edge via MAVLink
    */
-  sendCommand(command: string, payload?: any): boolean {
+  sendCommand(command: string, payload?: any, type: ControlMessageType = 'COMMAND'): boolean {
     if (this.status !== 'CONNECTED' && this.status !== 'DEGRADED') {
       console.warn('[Control MAVLink] Cannot send command while control link is disconnected.');
       return false;
     }
 
     this.bytesTx += 48;
+    this.txSequenceNumber++;
 
     if (this.activeConfig?.type === 'MOCK') {
       return mockControlService.sendControlCommand(command, payload);
@@ -373,7 +489,16 @@ export class ControlConnectionService {
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        this.ws.send(JSON.stringify({ type: 'COMMAND', command, payload }));
+        const token = this.activeConfig?.udp?.authToken || 'UAVLink_GCS_Default_Token_2026';
+        const packet: FlightControlPacket = {
+          sessionId: this.sessionId,
+          seq: this.txSequenceNumber,
+          timestamp: Date.now(),
+          type: type,
+          token,
+          payload: { command, payload },
+        };
+        this.ws.send(JSON.stringify(packet));
         return true;
       } catch (e) {
         console.error('[Control MAVLink] Failed to send command over socket:', e);
@@ -399,3 +524,5 @@ export class ControlConnectionService {
 }
 
 export const controlConnectionService = new ControlConnectionService();
+
+

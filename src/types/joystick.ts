@@ -11,4 +11,16 @@ export interface FlightControlInput {
   yaw: number;
   throttle: number;
   timestamp: number;
+  seq?: number;
+}
+
+export type ControlMessageType = 'MANUAL_CONTROL' | 'HEARTBEAT' | 'COMMAND' | 'MISSION' | 'TELEMETRY';
+
+export interface FlightControlPacket<T = any> {
+  sessionId?: string;
+  seq: number;
+  timestamp: number;
+  type: ControlMessageType;
+  token?: string;
+  payload: T;
 }

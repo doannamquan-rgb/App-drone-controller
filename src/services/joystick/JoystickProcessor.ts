@@ -20,26 +20,46 @@ class JoystickProcessor {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private listeners: FlightControlListener[] = [];
   private lastProcessedInput: FlightControlInput = { ...NEUTRAL_FLIGHT_INPUT };
+  private sequenceNumber: number = 0;
 
   // Primary control message type
   private messageType = JOYSTICK_MESSAGE_CONFIG.PRIMARY;
 
-  // Update inputs directly from UI (High frequency)
+  // Update inputs directly from UI touch handlers (Buffered for network, immediate for UI)
   updateLeftStick(x: number, y: number, active: boolean) {
     this.leftStick = { x, y, active, timestamp: Date.now() };
-    this.tick();
+    const flightInput = InputMapper.mapInputs(this.leftStick, this.rightStick);
+    flightInput.seq = this.sequenceNumber;
+    flightInput.timestamp = this.leftStick.timestamp;
+    this.lastProcessedInput = flightInput;
+    this.listeners.forEach(l => l(flightInput));
+    if (!this.intervalId) {
+      this.tick();
+    }
   }
   
   updateRightStick(x: number, y: number, active: boolean) {
     this.rightStick = { x, y, active, timestamp: Date.now() };
-    this.tick();
+    const flightInput = InputMapper.mapInputs(this.leftStick, this.rightStick);
+    flightInput.seq = this.sequenceNumber;
+    flightInput.timestamp = this.rightStick.timestamp;
+    this.lastProcessedInput = flightInput;
+    this.listeners.forEach(l => l(flightInput));
+    if (!this.intervalId) {
+      this.tick();
+    }
   }
 
   // Reset both sticks to centered neutral safe position
   resetToNeutral() {
+    this.sequenceNumber++;
     this.leftStick = { x: 0, y: 0, active: false, timestamp: Date.now() };
     this.rightStick = { x: 0, y: 0, active: false, timestamp: Date.now() };
-    this.lastProcessedInput = { ...NEUTRAL_FLIGHT_INPUT, timestamp: Date.now() };
+    this.lastProcessedInput = { 
+      ...NEUTRAL_FLIGHT_INPUT, 
+      timestamp: Date.now(),
+      seq: this.sequenceNumber 
+    };
     this.listeners.forEach(l => l(this.lastProcessedInput));
     safetyLayer.executeJoystickCommand(this.lastProcessedInput);
   }
@@ -56,6 +76,9 @@ class JoystickProcessor {
     if (this.intervalId) return;
     
     const intervalMs = 1000 / PROTOCOL_CONSTANTS.JOYSTICK_UPDATE_RATE_HZ;
+    
+    // Initial tick on start
+    this.tick();
     
     this.intervalId = setInterval(() => {
       this.tick();
@@ -75,6 +98,10 @@ class JoystickProcessor {
     return this.lastProcessedInput;
   }
   
+  getSequenceNumber(): number {
+    return this.sequenceNumber;
+  }
+  
   private tick() {
     const now = Date.now();
     
@@ -86,8 +113,12 @@ class JoystickProcessor {
       this.rightStick = { x: 0, y: 0, active: false, timestamp: now };
     }
     
+    this.sequenceNumber++;
+
     // Map raw inputs to flight control inputs (Neutral if inactive/centered)
     const flightInput = InputMapper.mapInputs(this.leftStick, this.rightStick);
+    flightInput.seq = this.sequenceNumber;
+    flightInput.timestamp = now;
     this.lastProcessedInput = flightInput;
     
     // Notify listeners (UI feedback)

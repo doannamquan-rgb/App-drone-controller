@@ -15,6 +15,7 @@ export const DEFAULT_CONNECTION_CONFIG: ConnectionConfig = {
     wifiPort: PROTOCOL_CONSTANTS.MAVLINK_DEFAULT_PORT,
     cloudHost: PROTOCOL_CONSTANTS.FLEET_SERVER_HOST,
     cloudPort: PROTOCOL_CONSTANTS.MAVLINK_DEFAULT_PORT,
+    authToken: 'UAVLink_GCS_Default_Token_2026',
     autoConnect: true,
     reconnect: true,
     reconnectDelayMs: 1000,

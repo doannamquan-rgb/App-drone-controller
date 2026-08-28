@@ -109,6 +109,7 @@ describe('DroneGSC ↔ UAVLink-Edge Protocol Conformance Verification Suite', ()
       expect(lastInput.pitch).toBe(0);
       expect(lastInput.yaw).toBe(0);
       expect(lastInput.throttle).toBe(0.5);
+      expect(lastInput.seq).toBeGreaterThan(0);
       joystickProcessor.stop();
     });
 
@@ -121,6 +122,18 @@ describe('DroneGSC ↔ UAVLink-Edge Protocol Conformance Verification Suite', ()
       const input = joystickProcessor.getLastProcessedInput();
       expect(input.roll).toBe(0);
       expect(input.pitch).toBe(0);
+      joystickProcessor.stop();
+    });
+
+    it('MUST increment sequence numbers monotonically and attach valid timestamps', async () => {
+      joystickProcessor.start();
+      await new Promise(resolve => setTimeout(resolve, 110));
+      const seq1 = joystickProcessor.getSequenceNumber();
+      expect(seq1).toBeGreaterThanOrEqual(2);
+
+      await new Promise(resolve => setTimeout(resolve, 60));
+      const seq2 = joystickProcessor.getSequenceNumber();
+      expect(seq2).toBeGreaterThan(seq1);
       joystickProcessor.stop();
     });
   });
@@ -226,6 +239,32 @@ describe('DroneGSC ↔ UAVLink-Edge Protocol Conformance Verification Suite', ()
       store.dispatch(setControlStatus('DISCONNECTED'));
       const result = await safetyLayer.executeCommand({ type: 'ARM' });
       expect(result.success).toBe(false);
+    });
+
+    it('MUST generate new Session ID and reset sequence numbers upon reconnect', async () => {
+      controlConnectionService.connect({ type: 'MOCK' });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const sess1 = controlConnectionService.getSessionId();
+      expect(sess1).toBeTruthy();
+      expect(sess1.startsWith('sess_')).toBe(true);
+
+      controlConnectionService.sendCommand('ARM');
+      expect(controlConnectionService.getTxSequenceNumber()).toBeGreaterThan(0);
+
+      controlConnectionService.disconnect();
+      expect(controlConnectionService.getTxSequenceNumber()).toBe(0);
+
+      controlConnectionService.connect({ type: 'MOCK' });
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const sess2 = controlConnectionService.getSessionId();
+      expect(sess2).toBeTruthy();
+      expect(sess2).not.toBe(sess1);
+      controlConnectionService.disconnect();
+    });
+
+    it('MUST have auth token support in connection config for VPS control relay security', () => {
+      expect(DEFAULT_CONNECTION_CONFIG.udp.authToken).toBeDefined();
+      expect(DEFAULT_CONNECTION_CONFIG.udp.authToken).toBe('UAVLink_GCS_Default_Token_2026');
     });
 
     it('MUST never contain hardcoded developer IPs (e.g. 192.168.1.12)', () => {

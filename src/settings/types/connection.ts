@@ -15,6 +15,7 @@ export interface UdpSettings {
   wifiPort: number;
   cloudHost: string;
   cloudPort: number;
+  authToken?: string;
   autoConnect: boolean;
   reconnect: boolean;
   reconnectDelayMs: number;

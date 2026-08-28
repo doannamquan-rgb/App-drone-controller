@@ -5,6 +5,7 @@ import { commandLogger } from './CommandLogger';
 import { store } from '../../store';
 import { setPendingCommand, setCommandResult } from '../../store/command/commandSlice';
 import { AppConfig } from '../../config';
+import { controlConnectionService } from '../connection/ControlConnectionService';
 
 class SafetyLayer {
   async executeCommand(command: DroneCommand): Promise<CommandResult> {
@@ -28,7 +29,21 @@ class SafetyLayer {
 
     // 3. Execute
     try {
-      const result = await mockCommandService.sendCommand(command);
+      const state = store.getState();
+      let result: CommandResult;
+
+      if (state.connection.activeType === 'MOCK' || (controlConnectionService.getStatus() !== 'CONNECTED' && controlConnectionService.getStatus() !== 'DEGRADED')) {
+        result = await mockCommandService.sendCommand(command);
+      } else {
+        const payload = (command as any).payload;
+        const sent = controlConnectionService.sendCommand(command.type, payload, 'COMMAND');
+        result = {
+          command: command.type,
+          success: sent,
+          error: sent ? undefined : 'COMMAND_SEND_FAILED',
+          timestamp: Date.now(),
+        };
+      }
       
       // 4. Log and Dispatch result
       commandLogger.log(result);
@@ -54,12 +69,17 @@ class SafetyLayer {
 
   executeJoystickCommand(input: import('../../types/joystick').FlightControlInput) {
     const state = store.getState();
-    const { connection, drone } = state;
+    const { connection } = state;
 
-    if (connection.status !== 'CONNECTED') return;
+    if (connection.status !== 'CONNECTED' && connection.controlStatus !== 'CONNECTED') return;
 
-    // Pass stick inputs to mock command service for responsive physics/visualization
-    mockCommandService.sendJoystickData(input);
+    if (connection.activeType === 'MOCK') {
+      // Pass stick inputs to mock command service for responsive physics/visualization
+      mockCommandService.sendJoystickData(input);
+    } else if (controlConnectionService.getStatus() === 'CONNECTED' || controlConnectionService.getStatus() === 'DEGRADED') {
+      // Send real-time normalized manual control packet over ControlConnectionService
+      controlConnectionService.sendCommand('JOYSTICK', { input }, 'MANUAL_CONTROL');
+    }
   }
 }
 
