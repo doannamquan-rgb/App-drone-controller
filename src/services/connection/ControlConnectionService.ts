@@ -107,13 +107,13 @@ export class ControlConnectionService {
   }
 
   /**
-   * Connect strictly to Control & Telemetry Transport (UDP / MAVLink / Mock)
+   * Connect strictly to Control & Telemetry Transport (WebSocket / MAVLink / Mock)
    */
   connect(config?: Partial<ConnectionConfig>) {
     if (this.status === 'CONNECTED' || this.status === 'CONNECTING') return;
 
     this.activeConfig = config as ConnectionConfig;
-    const cType = config?.type || 'UDP';
+    const cType = config?.type || 'WEBSOCKET';
 
     // Reset sequence numbers and start a fresh session on new connection attempt
     this.sessionId = this.generateSessionId();
@@ -378,7 +378,14 @@ export class ControlConnectionService {
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        const token = this.activeConfig?.udp?.authToken || 'UAVLink_GCS_Default_Token_2026';
+        const token = this.activeConfig?.udp?.authToken;
+        if (!token) {
+          console.error(
+            '[Control MAVLink] SECURITY: authToken is not configured. Refusing to send heartbeat over unauthenticated channel. ' +
+            'Set udp.authToken in your connection settings before connecting.'
+          );
+          return;
+        }
         const packet: FlightControlPacket = {
           sessionId: this.sessionId,
           seq: this.txSequenceNumber,
@@ -489,7 +496,14 @@ export class ControlConnectionService {
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        const token = this.activeConfig?.udp?.authToken || 'UAVLink_GCS_Default_Token_2026';
+        const token = this.activeConfig?.udp?.authToken;
+        if (!token) {
+          console.error(
+            '[Control MAVLink] SECURITY: authToken is not configured. Refusing to send command over unauthenticated channel. ' +
+            'Set udp.authToken in your connection settings before connecting.'
+          );
+          return false;
+        }
         const packet: FlightControlPacket = {
           sessionId: this.sessionId,
           seq: this.txSequenceNumber,

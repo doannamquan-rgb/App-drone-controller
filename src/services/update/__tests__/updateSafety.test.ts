@@ -83,7 +83,7 @@ describe('DroneGSC OTA Update Safety & Race Condition Interlock Matrix', () => {
     });
 
     it('MUST ALLOW update in Real Mode when Vehicle is Connected and confirmed DISARMED', () => {
-      store.dispatch(setConnectionType('UDP'));
+      store.dispatch(setConnectionType('WEBSOCKET'));
       store.dispatch(setConnectionStatus('CONNECTED'));
       store.dispatch(setArmed(false));
       store.dispatch(setFlightMode('STABILIZE'));
@@ -94,7 +94,7 @@ describe('DroneGSC OTA Update Safety & Race Condition Interlock Matrix', () => {
     });
 
     it('MUST FAIL-CLOSED (BLOCK) when Real Vehicle is DISCONNECTED (state unconfirmed)', () => {
-      store.dispatch(setConnectionType('UDP'));
+      store.dispatch(setConnectionType('WEBSOCKET'));
       store.dispatch(setConnectionStatus('DISCONNECTED'));
       store.dispatch(setArmed(false));
       const safety = updateService.evaluateSafety(store.getState());

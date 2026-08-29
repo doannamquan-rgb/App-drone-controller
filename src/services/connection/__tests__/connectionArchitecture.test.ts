@@ -262,9 +262,12 @@ describe('DroneGSC ↔ UAVLink-Edge Protocol Conformance Verification Suite', ()
       controlConnectionService.disconnect();
     });
 
-    it('MUST have auth token support in connection config for VPS control relay security', () => {
-      expect(DEFAULT_CONNECTION_CONFIG.udp.authToken).toBeDefined();
-      expect(DEFAULT_CONNECTION_CONFIG.udp.authToken).toBe('UAVLink_GCS_Default_Token_2026');
+    it('MUST have authToken undefined by default — no hardcoded fallback (fail-closed security)', () => {
+      expect(DEFAULT_CONNECTION_CONFIG.udp.authToken).toBeUndefined();
+    });
+
+    it('MUST use WEBSOCKET as default ConnectionType (not UDP) to reflect actual WebSocket transport', () => {
+      expect(DEFAULT_CONNECTION_CONFIG.type).toBe('WEBSOCKET');
     });
 
     it('MUST never contain hardcoded developer IPs (e.g. 192.168.1.12)', () => {

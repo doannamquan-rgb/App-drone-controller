@@ -2,7 +2,7 @@ import { ConnectionConfig } from '../types/connection';
 import { PROTOCOL_CONSTANTS } from '../../config/protocolConstants';
 
 export const DEFAULT_CONNECTION_CONFIG: ConnectionConfig = {
-  type: 'UDP',
+  type: 'WEBSOCKET',
   vehicleType: 'COPTER',
   autopilot: 'ARDUPILOT',
   protocol: 'MAVLINK_V2',
@@ -15,7 +15,7 @@ export const DEFAULT_CONNECTION_CONFIG: ConnectionConfig = {
     wifiPort: PROTOCOL_CONSTANTS.MAVLINK_DEFAULT_PORT,
     cloudHost: PROTOCOL_CONSTANTS.FLEET_SERVER_HOST,
     cloudPort: PROTOCOL_CONSTANTS.MAVLINK_DEFAULT_PORT,
-    authToken: 'UAVLink_GCS_Default_Token_2026',
+    authToken: undefined, // MUST be set by user — no fallback. App will refuse to connect if missing.
     autoConnect: true,
     reconnect: true,
     reconnectDelayMs: 1000,

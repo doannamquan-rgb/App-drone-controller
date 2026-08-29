@@ -40,7 +40,7 @@ export function QuickConnectModal({ visible, onClose }: Props) {
   const isConnecting = status === 'CONNECTING';
 
   const connectionTypes: { id: ConnectionType; label: string; icon: string; desc: string }[] = [
-    { id: 'UDP', label: 'UDP', icon: '📶', desc: 'WiFi / Hotspot / Pi Gateway' },
+    { id: 'WEBSOCKET', label: 'WebSocket', icon: '📶', desc: 'WiFi / 4G via MAVLink WebSocket Bridge (:8088/ws)' },
     { id: 'TCP', label: 'TCP', icon: '🌐', desc: 'LAN / 4G VPN / Cloud Server' },
     { id: 'USB_SERIAL', label: 'USB SERIAL', icon: '🔌', desc: 'OTG Cable / SiK Radio Telemetry' },
     { id: 'BLUETOOTH', label: 'BLUETOOTH', icon: '📡', desc: 'HC-05 / HM-10 / ESP32 BLE' },
@@ -69,8 +69,8 @@ export function QuickConnectModal({ visible, onClose }: Props) {
       universalConnectionService.disconnect();
       onClose();
     } else {
-      let portString = 'UDP: 14550';
-      if (config.type === 'UDP') portString = `UDP: ${config.udp.remotePort}`;
+      let portString = 'WS: 8088';
+      if (config.type === 'WEBSOCKET') portString = `WS: ${config.udp.remoteHost}:8088`;
       else if (config.type === 'TCP') portString = `TCP: ${config.tcp.host}:${config.tcp.port}`;
       else if (config.type === 'USB_SERIAL') portString = `USB: ${config.serial.baudRate} baud`;
       else if (config.type === 'BLUETOOTH') portString = `BLE: ${config.bluetooth.deviceName}`;
@@ -142,7 +142,7 @@ export function QuickConnectModal({ visible, onClose }: Props) {
             {/* 2. Parameters based on selected type */}
             <Text style={styles.sectionTitle}>2. PORT & HARDWARE PARAMETERS</Text>
             <View style={styles.paramsCard}>
-              {config.type === 'UDP' && (
+              {config.type === 'WEBSOCKET' && (
                 <View>
                   <Text style={styles.fieldLabel}>Remote Host IP (Pi Gateway / Drone IP)</Text>
                   <TextInput

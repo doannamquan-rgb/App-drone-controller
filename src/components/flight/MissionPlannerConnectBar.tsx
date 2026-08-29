@@ -35,14 +35,12 @@ export function MissionPlannerConnectBar() {
 
   // Mission Planner Protocol / Port List
   const portOptions: DropdownItem[] = [
-    { id: 'AUTO', label: 'AUTO', type: 'UDP', defaultBaudOrPort: 14550 },
+    { id: 'AUTO', label: 'AUTO', type: 'WEBSOCKET', defaultBaudOrPort: 8088 },
     { id: 'COM_PIXHAWK', label: 'COM5 Pixhawk USB (OTG)', type: 'USB_SERIAL', defaultBaudOrPort: 115200 },
     { id: 'COM_RADIO', label: 'COM9 SiK Radio 433/915MHz', type: 'USB_SERIAL', defaultBaudOrPort: 57600 },
     { id: 'COM_BLE', label: 'COM4 Bluetooth Serial Link (BLE)', type: 'BLUETOOTH', defaultBaudOrPort: 57600 },
     { id: 'TCP', label: 'TCP (192.168.1.100:5760)', type: 'TCP', defaultBaudOrPort: 5760 },
-    { id: 'UDP', label: 'UDP (14550 Broadcast)', type: 'UDP', defaultBaudOrPort: 14550 },
-    { id: 'UDPCI', label: 'UDPCI (14551 Client)', type: 'UDP', defaultBaudOrPort: 14551 },
-    { id: 'WS', label: 'WS (MAVLink WebSocket)', type: 'TCP', defaultBaudOrPort: 8080 },
+    { id: 'WS', label: 'WebSocket MAVLink Bridge (:8088/ws)', type: 'WEBSOCKET', defaultBaudOrPort: 8088 },
     { id: 'SITL', label: 'SITL (Virtual Flight Simulation)', type: 'MOCK', defaultBaudOrPort: 5760 },
   ];
 
@@ -61,27 +59,27 @@ export function MissionPlannerConnectBar() {
 
   // Determine current active display labels
   const getCurrentPortLabel = () => {
-    if (config.type === 'UDP') return config.udp.remotePort === 14551 ? 'UDPCI' : 'UDP';
+    if (config.type === 'WEBSOCKET') return 'WS';
     if (config.type === 'TCP') return 'TCP';
     if (config.type === 'USB_SERIAL') return config.serial.baudRate === 57600 ? 'COM9' : 'COM5';
     if (config.type === 'BLUETOOTH') return 'COM4 BLE';
     if (config.type === 'MOCK') return 'SITL';
-    return 'UDP';
+    return 'WS';
   };
 
   const getCurrentBaudLabel = () => {
-    if (config.type === 'UDP') return `${config.udp.remotePort}`;
+    if (config.type === 'WEBSOCKET') return `${config.udp.remotePort}`;
     if (config.type === 'TCP') return `${config.tcp.port}`;
     if (config.type === 'USB_SERIAL') return `${config.serial.baudRate}`;
     if (config.type === 'BLUETOOTH') return `${config.bluetooth.baudRate}`;
-    return '115200';
+    return '8088';
   };
 
   const handleSelectPort = (item: DropdownItem) => {
     dispatch(setConnectionType(item.type));
     if (item.defaultBaudOrPort) {
       if (item.type === 'USB_SERIAL') dispatch(updateSerialSettings({ baudRate: item.defaultBaudOrPort }));
-      if (item.type === 'UDP') dispatch(updateUdpSettings({ remotePort: item.defaultBaudOrPort, localPort: item.defaultBaudOrPort }));
+      if (item.type === 'WEBSOCKET') dispatch(updateUdpSettings({ remotePort: item.defaultBaudOrPort, localPort: item.defaultBaudOrPort }));
       if (item.type === 'TCP') dispatch(updateTcpSettings({ port: item.defaultBaudOrPort }));
     }
     setShowPortMenu(false);
@@ -89,7 +87,7 @@ export function MissionPlannerConnectBar() {
 
   const handleSelectBaud = (value: number) => {
     if (config.type === 'USB_SERIAL') dispatch(updateSerialSettings({ baudRate: value }));
-    else if (config.type === 'UDP') dispatch(updateUdpSettings({ remotePort: value, localPort: value }));
+    else if (config.type === 'WEBSOCKET') dispatch(updateUdpSettings({ remotePort: value, localPort: value }));
     else if (config.type === 'TCP') dispatch(updateTcpSettings({ port: value }));
     setShowBaudMenu(false);
   };

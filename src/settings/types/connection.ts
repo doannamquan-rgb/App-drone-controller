@@ -1,4 +1,4 @@
-export type ConnectionType = 'UDP' | 'TCP' | 'USB_SERIAL' | 'BLUETOOTH' | 'MOCK';
+export type ConnectionType = 'WEBSOCKET' | 'TCP' | 'USB_SERIAL' | 'BLUETOOTH' | 'MOCK';
 
 export type VehicleType = 'COPTER' | 'PLANE' | 'VTOL' | 'ROVER' | 'SUB' | 'GENERIC';
 export type AutopilotType = 'ARDUPILOT' | 'PX4' | 'INAV';

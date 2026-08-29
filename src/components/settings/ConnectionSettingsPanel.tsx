@@ -45,7 +45,7 @@ export function ConnectionSettingsPanel() {
   const isConnecting = controlStatus === 'CONNECTING' || controlStatus === 'RECONNECTING';
 
   const connectionTabs: { id: ConnectionType; label: string; icon: string; desc: string }[] = [
-    { id: 'UDP', label: 'Wi-Fi / 4G (UDP)', icon: '📶', desc: 'Direct MAVLink over UDP (14550)' },
+    { id: 'WEBSOCKET', label: 'Wi-Fi / 4G (WebSocket)', icon: '📶', desc: 'MAVLink over WebSocket Bridge (:8088/ws)' },
     { id: 'MOCK', label: 'SITL MOCK', icon: '🎮', desc: 'Virtual flight dynamics & mock feed' },
     { id: 'TCP', label: 'TCP Client', icon: '🌐', desc: 'Direct TCP stream' },
     { id: 'USB_SERIAL', label: 'USB OTG', icon: '🔌', desc: 'Direct FTDI/UART Serial' },
@@ -92,10 +92,10 @@ export function ConnectionSettingsPanel() {
   };
 
   const handleConnect = () => {
-    let portString = 'UDP: 14550';
-    if (config.type === 'UDP') {
+    let portString = 'WS: 8088';
+    if (config.type === 'WEBSOCKET') {
       const endpoint = controlConnectionService.resolveTargetEndpoint(config);
-      portString = `UDP: ${endpoint.host}:${endpoint.port}`;
+      portString = `WS: ${endpoint.host}:8088/ws`;
     } else if (config.type === 'TCP') {
       portString = `TCP: ${config.tcp.host}:${config.tcp.port}`;
     } else if (config.type === 'USB_SERIAL') {
@@ -181,7 +181,7 @@ export function ConnectionSettingsPanel() {
       </View>
 
       {/* Protocol Config Body */}
-      {config.type === 'UDP' && (
+      {config.type === 'WEBSOCKET' && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Network Topology Selection</Text>
           <View style={styles.modeGroup}>

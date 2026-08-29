@@ -1,4 +1,4 @@
-﻿# DroneGSC & UAVLink-Edge Connection & Video Architecture
+# DroneGSC & UAVLink-Edge Connection & Video Architecture
 
 ## 1. Existing UAVLink-Edge Architecture
 
@@ -8,7 +8,7 @@
 * **MAVLink Downlink / Uplink (UDP)**: Port 14550 (or 14540 local listen)
 * **WebSocket Control Bridge**: Port 8088/ws (WebSocket JSON bridge bridging Mobile App to MAVLink)
 * **Web Management / REST API**: Port 8080 (FastAPI / aiohttp / standard HTTP endpoints)
-* **Auth Service (TCP)**: Port 5770 (HMAC-SHA256 Challenge-Response)
+* **Auth**: Static Bearer Token trong JSON payload gửi qua WebSocket — trường `token` trong mỗi `FlightControlPacket`. **KHÔNG CÓ** Port 5770 hay HMAC-SHA256 Challenge-Response nào trong code thực tế của app hay forwarder.py được xác nhận.
 * **MediaMTX Video Streaming**:
   * RTSP publish & ingest: rtsp://<host>:8554/<uuid>/cam0
   * WebRTC (WHEP): http://<host>:8889/<uuid>/cam0/whep
@@ -130,3 +130,31 @@ States: IDLE -> UPLOADING (0-100%) -> VERIFYING -> SYNCED / FAILED.
    * Video reconnects independently without resetting MAVLink sessions.
 4. **OTA Update Safety Interlock**:
    * Remains strict: OTA update apply is forbidden when armed, in-flight, or during active manual control.
+
+---
+
+## 13. Security Debt & Open Items
+
+### 13.1 Transport Encryption — wss:// cho Mode 2 (4G)
+
+> **⚠ SECURITY DEBT — VIỆC CÒN NỢ**
+
+* **Hiện trạng**: Kênh App → VPS (Mode 2 - 4G) đang dùng **`ws://` (cleartext WebSocket)** qua internet công khai. Token xác thực và toàn bộ lệnh điều khiển drone (ARM, DISARM, TAKEOFF, v.v.) được gửi **không mã hoá** qua mạng 4G/WAN.
+* **Rủi ro**: Bất kỳ ai có thể MITM (Man-in-the-Middle) trên đường truyền đều có thể đọc token và phát lại lệnh điều khiển.
+* **Giải pháp cần triển khai**: Nâng cấp VPS lên HTTPS/WSS bằng TLS certificate (Let's Encrypt hoặc self-signed CA), sau đó đổi URL kết nối từ `ws://<vps>:8088/ws` → `wss://<vps>:8088/ws`. Mode 1 (Wi-Fi LAN) là local network có thể giữ `ws://` hoặc nâng lên `wss://` tuỳ chọn.
+* **Mốc thời gian dự kiến**: Cần hoàn thành trước khi drone bay qua 4G trong môi trường thực tế / ngoài trời.
+* **Scope**: Thay đổi này cần cấu hình phía VPS/Pi (TLS cert, nginx/caddy reverse proxy), không chỉ phía app.
+
+### 13.2 Token Rotation — Đổi Token Thủ Công Trên Pi/VPS
+
+> **⚠ HÀNH ĐỘNG CẦN THỰC HIỆN NGAY NGOÀI REPO**
+
+* Token mặc định `UAVLink_GCS_Default_Token_2026` đã bị **lộ công khai** trong git history của repo public này.
+* **Người dùng phải đổi token thủ công** trong file cấu hình của `forwarder.py` hoặc companion Python service trên Pi và VPS:
+  ```bash
+  # Ví dụ trên Pi / VPS — tìm và thay thế trong forwarder.py hoặc .env
+  AUTH_TOKEN="<token-mới-bí-mật-của-bạn>"
+  ```
+* Sau đó, nhập token mới này vào phần Settings của DroneGSC App (trường `udp.authToken`) — app sẽ từ chối kết nối nếu không có token (`fail-closed`).
+* Token KHÔNG CÒN được hard-code hay có giá trị mặc định nào trong app kể từ commit này.
+
