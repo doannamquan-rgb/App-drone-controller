@@ -4,24 +4,25 @@ import { videoConnectionService } from '../services/connection/VideoConnectionSe
 import { heartbeatService } from '../services/connection/HeartbeatService';
 import { UniversalTelemetryData } from '../services/connection/UniversalConnectionService';
 import { PROTOCOL_CONSTANTS } from '../config/protocolConstants';
+import { updateService } from '../services/update/updateService';
 import { useAppDispatch } from '../store/hooks';
-import { 
-  setStatus, 
+import {
+  setStatus,
   setControlStatus,
   setVideoStatus,
   setVideoError,
-  setHeartbeat, 
-  setLatency, 
-  updateTrafficStats, 
-  setDetectedVehicle 
+  setHeartbeat,
+  setLatency,
+  updateTrafficStats,
+  setDetectedVehicle
 } from '../store/connection/connectionSlice';
-import { 
-  updateGps, 
-  updateBattery, 
-  updateAttitude, 
-  updateVelocity, 
+import {
+  updateGps,
+  updateBattery,
+  updateAttitude,
+  updateVelocity,
   updateSensors,
-  clearTelemetry 
+  clearTelemetry
 } from '../store/telemetry/telemetrySlice';
 import { setArmed, setFlightMode } from '../store/drone/droneSlice';
 
@@ -29,6 +30,12 @@ export function ConnectionManager() {
   const dispatch = useAppDispatch();
 
   useEffect(() => {
+    // 0. Initialize OTA update service metadata & kick off background check
+    updateService.init();
+    // Background flow: wait 5s after app starts, check EAS Update, auto-download,
+    // then wait for drone to be safely disarmed before notifying user via modal.
+    updateService.startBackgroundCheckFlow(5000);
+
     // 1. Subscribe to Control Link status changes
     const unsubscribeControlStatus = controlConnectionService.onStatusChange((status) => {
       dispatch(setControlStatus(status));
@@ -165,6 +172,7 @@ export function ConnectionManager() {
       unsubscribeHeartbeat();
       controlConnectionService.disconnect();
       videoConnectionService.disconnect();
+      updateService.stopSafetyWatcher();
     };
   }, [dispatch]);
 
