@@ -39,12 +39,13 @@
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/d8bd70bf-63da-445d-958f-f51f5dfcfef3"
     },
+    "owner": "nam_quan",
     "plugins": [
       "expo-video",
       [
         "expo-updates",
         {
-          "username": "cosshin"
+          "username": "nam_quan"
         }
       ]
     ],
