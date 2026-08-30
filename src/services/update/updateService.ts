@@ -1,4 +1,4 @@
-﻿import * as Updates from "expo-updates";
+import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 import { store, RootState } from "../../store";
 import {
@@ -72,7 +72,7 @@ class UpdateService {
       if (!state.update.updateReady) return;
       const safety = this.evaluateSafety(state);
       store.dispatch(setSafetyState(safety));
-      if (safety.isSafe) {
+      if (safety.isSafe || (!state.drone.armed && safety.reason === "DISCONNECTED_REAL_VEHICLE")) {
         console.log("[OTA] Safe window opened. Notifying user of pending update.");
         this.onUpdateReadyCallback?.();
         this.safetyWatcherUnsubscribe?.();
@@ -108,28 +108,40 @@ class UpdateService {
   public evaluateSafety(state: RootState): SafetyCheckResult {
     const { drone, connection, settings } = state;
     const isMock = settings?.connection?.type === "MOCK" || (settings?.connection as any)?.mode === "MOCK";
+    
+    // 1. ARMED -> strictly blocked (highest priority, unconditional)
     if (drone.armed) {
       return { isSafe: false, reason: "ARMED", message: "Vehicle is currently ARMED! Reloading is strictly blocked for flight safety." };
     }
+
+    // 2. Active unsafe flight mode -> BLOCK (applies to both Mock and Real)
     const currentMode = (drone.flightMode || "").toUpperCase();
     if (UpdateConfig.UNSAFE_FLIGHT_MODES.includes(currentMode)) {
       return { isSafe: false, reason: "UNSAFE_FLIGHT_MODE", message: `Vehicle is in active flight mode (${drone.flightMode})! Reloading is blocked.` };
     }
-    const currentStatus = (drone.systemStatus || "").toUpperCase();
-    if (currentStatus === "UNINIT" || currentStatus === "BOOTING") {
-      return { isSafe: false, reason: "UNCONFIRMED_STATE", message: "Vehicle system state is uninitialized. Telemetry not yet established." };
-    }
-    if (isMock) {
-      if (!drone.armed) {
-        return { isSafe: true, reason: "SAFE_CONFIRMED", message: "Mock Drone is DISARMED and safely idle on ground." };
+
+    // 3. When connected: check if vehicle telemetry stream is uninitialized or booting
+    if (connection.status === "CONNECTED") {
+      const currentStatus = (drone.systemStatus || "").toUpperCase();
+      if (currentStatus === "UNINIT" || currentStatus === "BOOTING") {
+        return { isSafe: false, reason: "UNCONFIRMED_STATE", message: "Vehicle system state is uninitialized. Telemetry not yet established." };
       }
     }
+
+    // 4. Mock mode: known simulated environment (when disarmed, not in flight, and active)
+    if (isMock) {
+      return { isSafe: true, reason: "SAFE_CONFIRMED", message: "Mock Drone is DISARMED and safely idle on ground." };
+    }
+
+    // 5. Real vehicle connected -> check safe idle modes
     if (connection.status === "CONNECTED") {
       if (!drone.armed && (UpdateConfig.SAFE_IDLE_MODES.includes(currentMode) || currentMode === "UNKNOWN")) {
         return { isSafe: true, reason: "SAFE_CONFIRMED", message: "Real vehicle is connected and confirmed DISARMED on ground." };
       }
       return { isSafe: false, reason: "UNSAFE_FLIGHT_MODE", message: `Real vehicle is in unverified flight mode: ${drone.flightMode}` };
     }
+
+    // 6. Real vehicle disconnected / app open on ground
     return { isSafe: false, reason: "DISCONNECTED_REAL_VEHICLE", message: "App is disconnected from Real Vehicle. Vehicle state is unconfirmed. Verify vehicle is physically landed and disarmed before applying update." };
   }
 
@@ -197,8 +209,8 @@ class UpdateService {
     const currentState = store.getState();
     const safety = this.evaluateSafety(currentState);
     if (!safety.isSafe) {
-      if (forceIfDisconnected && safety.reason === "DISCONNECTED_REAL_VEHICLE") {
-        // Pilot manually confirmed vehicle powered down
+      if (forceIfDisconnected && (safety.reason === "DISCONNECTED_REAL_VEHICLE" || safety.reason === "UNCONFIRMED_STATE")) {
+        // Pilot manually confirmed vehicle powered down / disconnected safely
       } else {
         store.dispatch(setSafetyState(safety));
         return { success: false, error: `UPDATE BLOCKED BY SAFETY INTERLOCK: ${safety.message}` };
